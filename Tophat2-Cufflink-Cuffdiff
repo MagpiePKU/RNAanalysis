@@ -1,0 +1,78 @@
+###########################################################################################
+use Cwd;
+
+$usermanual = qq(
+================================================================================
+usage: tophat-cufflink-pipeline config-file threads-number;
+config file format: (tab-delimited)
+OUTPUTDIR	RGID	RGSAMPLE	RGLIBRARY	RGDESCRIPTION	GENOME_TARGET	READ_LEFT	READ_RIGHT
+threads-number: 1-48 [suggested]
+
+You MUST have tophat2, cufflinks, bowtie2 installed and in your $PATH
+You MUST pre-build the bowtie2 index i.e. 
+bowtie2-build your-favourite-genome.fasta your-favourite-genome.fasta
+Building the index takes hours (unfortunately)
+================================================================================
+);
+
+if (@ARGV<2) { die print $usermanual; }
+
+print $usermanual;
+
+###########################################################################################
+
+
+$threads = $ARGV[1];
+
+@dirlist;
+
+###########################################################################################
+
+ReadConfigAndRunTophat2Cufflink();
+
+RunCuffMerge(@dirlist);
+
+RunCuffDiff(@dirlist);
+
+
+###########################################################################################
+sub ReadConfigAndRunTophat2Cufflink 
+{	
+	open (CONFIG, "< $ARGV[0]");
+	open (GTFLIST, "> gtflist");
+	while (<CONFIG>){
+		($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+		chomp $_;
+		my ($outputdir,$rgid,$rgsample,$rglibrary,$rgdescription,$genometarget,$inputlist_left,$inputlist_right) = split "\t", $_;
+		$rgdate = $year.$mon.$mday;
+		push (@dirlist, $outputdir);
+		RunTophat2Cufflinks ($outputdir,$rgid,$rgsample,$rglibrary,$rgdescription,$rgdate, $genometarget,$inputlist_left,$inputlist_right);
+		print GTFLIST "$outputdir/cufflinks/transcripts.gtf\n";
+	}
+}
+###########################################################################################
+sub RunTophat2Cufflinks
+{
+	my $currentdir = getcwd();
+	my ($outputdir,$rgid,$rgsample,$rglibrary,$rgdescription,$rgdate, $genometarget,$inputlist_left,$inputlist_right) = @_;
+	system "tophat2 -o $outputdir --b2-very-sensitive --rg-id $rgid --rg-sample $rgsample --rg-library $rglibrary --rg-description $rgdescription --rg-platform ILLUMINA --rg-date $rgdate -p $threads $genometarget $inputlist_left $inputlist_right " ;
+	chdir $outputdir;	
+	system "cufflinks -p $threads -u -L $rgsample.CUFF -v ./accepted_hits.bam ";
+	chdir $currentdir;
+}
+###########################################################################################
+sub RunCuffMerge
+{
+	system "cuffmerge -p $threads -o ./ gtflist";
+}
+###########################################################################################
+sub RunCuffDiff
+{
+	my @list = @_;
+	my $command =  "cuffdiff -p $threads -o ./cuffdiff ./merged.gtf ";
+	foreach $dir (@list){
+		$command .= "$dir/accepted_hits.bam ";
+	}
+	system $command;
+}
+###########################################################################################
